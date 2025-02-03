@@ -1,0 +1,38 @@
+SELECT 
+    qry_accrued_IT.[H/K], 
+    qry_accrued_IT.[Part Number], 
+    qry_accrued_IT.BO_QTY, 
+    qry_accrued_IT.Monthly_DMD, 
+    qry_accrued_IT.Wkly_DMD, 
+    qry_accrued_IT.Daily_DMD, 
+    
+    CStr(
+        IIf(Nz([W1 Mon BO_OH_MOS], 0) >= 1 AND Nz([accrued_W1_Mon (IT)], 0) > 0, [W1 Mon],
+        IIf(Nz([W1 Tue BO_OH_MOS], 0) >= 1 AND Nz([accrued_W1_Tue (IT)], 0) > 0, [W1 Tue],
+        IIf(Nz([W1 Wed BO_OH_MOS], 0) >= 1 AND Nz([accrued_W1_Wed (IT)], 0) > 0, [W1 Wed],
+        IIf(Nz([W1 Thu BO_OH_MOS], 0) >= 1 AND Nz([accrued_W1_Thu (IT)], 0) > 0, [W1 Thu],
+        IIf(Nz([W1 Fri BO_OH_MOS], 0) >= 1 AND Nz([accrued_W1_Fri (IT)], 0) > 0, [W1 Fri],
+        IIf(Nz([W2 Mon BO_OH_MOS], 0) >= 1 AND Nz([accrued_W2_Mon (IT)], 0) > 0, [W2 Mon],
+        IIf(Nz([W2 Tue BO_OH_MOS], 0) >= 1 AND Nz([accrued_W2_Tue (IT)], 0) > 0, [W2 Tue],
+        IIf(Nz([W2 Wed BO_OH_MOS], 0) >= 1 AND Nz([accrued_W2_Wed (IT)], 0) > 0, [W2 Wed],
+        IIf(Nz([W2 Thu BO_OH_MOS], 0) >= 1 AND Nz([accrued_W2_Thu (IT)], 0) > 0, [W2 Thu],
+        IIf(Nz([W2 Fri BO_OH_MOS], 0) >= 1 AND Nz([accrued_W2_Fri (IT)], 0) > 0, [W2 Fri], "N"
+    ))))))))))) AS BOR_Up_to_W2_Fri,
+    
+    CStr(
+        IIf(Nz([W3 Fri BO_OH_MOS], 0) >= 1 AND Nz([accrued_W3_Fri (IT)], 0) > 0, [W3 Fri],
+        IIf(Nz([W4 Fri BO_OH_MOS], 0) >= 1 AND Nz([accrued_W4_Fri (IT)], 0) > 0, [W4 Fri],
+        IIf(Nz([W5 Fri BO_OH_MOS], 0) >= 1 AND Nz([accrued_W5_Fri (IT)], 0) > 0, [W5 Fri],
+        IIf(Nz([W6 Fri BO_OH_MOS], 0) >= 1 AND Nz([accrued_W6_Fri (IT)], 0) > 0, [W6 Fri],
+        IIf(Nz([W7 Fri BO_OH_MOS], 0) >= 1 AND Nz([accrued_W7_Fri (IT)], 0) > 0, [W7 Fri],
+        IIf(Nz([W8 Fri BO_OH_MOS], 0) >= 1 AND Nz([accrued_W8_Fri (IT)], 0) > 0, [W8 Fri], "TBD"
+    ))))))) AS BOR_After_W2_Fri,
+    
+    IIf([BO_QTY] > 0, 
+        IIf([BOR_Up_to_W2_Fri] = "N", [BOR_After_W2_Fri], [BOR_Up_to_W2_Fri]), "") AS [BOR],
+    
+    "BOR: " & [BOR] AS Backorder_Resolution
+
+FROM 
+    qry_accrued_IT, 
+    [qry_Weekdays tbl];
