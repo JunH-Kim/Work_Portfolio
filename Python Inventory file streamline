@@ -1,0 +1,132 @@
+from datetime import datetime
+import pyodbc 
+import cred.pw as pw
+import pandas as pd
+import psycopg2
+import shutil
+import os
+import logging
+
+# Configure logging to write to a file
+log_filename = r'N:\XXXX\AXXXX\XXXXs\Proactive Air\updated\MhqInv.log'
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_filename),
+        logging.StreamHandler()
+    ]
+)
+
+
+## =====================================================================MHQ-INV===============================================================================
+# Log the start of the PostgreSQL database connection
+logging.info('Connecting to PostgreSQL database...')
+try:
+    connection = psycopg2.connect(user="XXXX", password="XXXX", host="XXXX", port="XXXX", database="XXXX")
+    cursor = connection.cursor()
+    logging.info('Connected to PostgreSQL database.')
+except Exception as e:
+    logging.error(f'Failed to connect to PostgreSQL database: {e}')
+
+query = '''
+
+SELECT corp_cd MPA, hkc_dcd HK, RTRIM(ptno) PNO, RTRIM(hkc_dcd||ptno) HKPNO, RTRIM(pt_nm) PNAME,cha_cd CHR_CD, suc_cd SUC, sd_cls_cd CLS,      
+EIM.PKG_CMP, EIM.STORING, EIM.AVAILABLE, PVN.VND1, VEN.VND_NM_E, VEN.VND_NM_K, SEAIP.SEA_ALC_QT, SEAIP.SEA_PICK_QT, SEAIP.SEA_PACK_QT, SEAIP.SEA_PACKED_QT,
+AIRIP.AIR_ALC_QT, AIRIP.AIR_PICK_QT, AIRIP.AIR_PACK_QT, AIRIP.AIR_PACKED_QT, SEAIP.SEA_INVOICE_QT, AIRIP.AIR_INVOICE_QT, SEAIP.BO_SEA, AIRIP.BO_AIR
+FROM XXXX.GPMS      
+
+LEFT OUTER JOIN (SELECT hkc_dcd HK, RTRIM(ptno) PNO, SUM(raw_stk_qty) PKG_CMP, SUM(gnrl_str_stby_qty) STORING, SUM(gnrl_gds_stk_qty) AVAILABLE
+                FROM XXXX.MEIM      
+                GROUP BY hkc_dcd, RTRIM(ptno)) AS EIM      
+                ON hkc_dcd = EIM.HK AND RTRIM(ptno) = EIM.PNO      
+
+LEFT OUTER JOIN (SELECT hkc_dcd HK, RTRIM(ptno) PNO, pt_wth LENGTH, pt_vtcl WIDE, pt_hgt HEIGHT, pt_wgt WEIGHT      
+                FROM XXXX.MEPM
+                GROUP BY hkc_dcd, RTRIM(ptno), pt_wth, pt_vtcl, pt_hgt, pt_wgt) AS EPM      
+                ON hkc_dcd = EPM.HK AND RTRIM(ptno) = EPM.PNO   
+                
+LEFT OUTER JOIN(SELECT hkc_dcd HK, RTRIM(ptno) PNO, vnd_cd VND1
+                FROM XXXX.MPVN
+                WHERE de_dcd= 'E' AND po_rat=1) AS PVN
+                ON hkc_dcd=PVN.HK AND RTRIM(ptno)=PVN.PNO
+
+LEFT OUTER JOIN (SELECT vnd_cd VND2, vnd_eng_nm VND_NM_E, vnd_nm VND_NM_K 
+                FROM XXXX.MVEN      
+                GROUP BY vnd_cd, vnd_eng_nm, vnd_nm) AS VEN      
+                ON PVN.VND1 = VEN.VND2   
+
+LEFT OUTER JOIN (SELECT RTRIM(hkc_dcd) HK, RTRIM(conf_ptno) PNO, SUM(ord_allo_qty) SEA_ALC_QT, SUM(opic_qty) SEA_PICK_QT,
+                 SUM(opac_qty) SEA_PACK_QT,  SUM(pac_qty) SEA_PACKED_QT, SUM(inv_qty) SEA_INVOICE_QT, SUM(lst_bo_qty) BO_SEA      
+                FROM XXXX.MORP    
+                WHERE dst_sccd IN ('MPA') AND odf_cd NOT IN ('C','X','D')
+                AND (lst_bo_qty>0 OR ord_allo_qty>0 OR opic_qty>0 OR opac_qty>0 OR pac_qty>0 OR inv_qty>0) AND spy_cd = 'SEA'
+                GROUP BY RTRIM(hkc_dcd), RTRIM(conf_ptno)) AS SEAIP
+                ON hkc_dcd = SEAIP.HK AND RTRIM(ptno) = SEAIP.PNO  
+
+LEFT OUTER JOIN (SELECT RTRIM(hkc_dcd) HK, RTRIM(conf_ptno) PNO, SUM(ord_allo_qty) AIR_ALC_QT, SUM(opic_qty) AIR_PICK_QT,
+                SUM(opac_qty) AIR_PACK_QT, SUM(pac_qty) AIR_PACKED_QT, SUM(inv_qty) AIR_INVOICE_QT,SUM(lst_bo_qty) BO_AIR                 
+                FROM XXXX.MORP       
+                WHERE dst_sccd IN ('MPA') AND odf_cd NOT IN ('C','X','D')    
+                AND (lst_bo_qty>0 OR ord_allo_qty>0 OR opic_qty>0 OR opac_qty>0 OR pac_qty>0 OR inv_qty>0) AND spy_cd IN ('AIR','VOR','VXR')
+                GROUP BY RTRIM(hkc_dcd), RTRIM(conf_ptno)) AS AIRIP
+                ON hkc_dcd = AIRIP.HK AND RTRIM(ptno) = AIRIP.PNO                     
+
+WHERE corp_cd IN ('MPA') AND vnd_cd IN ('M00H','M00K') AND (LEFT(sd_cls_cd,1) IN ('A','B','E','C')) 
+AND (EIM.PKG_CMP > 0 OR EIM.STORING > 0 OR EIM.AVAILABLE > 0 OR SEAIP.SEA_PACKED_QT > 0 OR SEAIP.SEA_ALC_QT > 0 OR SEAIP.SEA_PICK_QT > 0 OR SEAIP.SEA_PACK_QT > 0 OR AIRIP.AIR_PACKED_QT > 0 OR AIRIP.AIR_ALC_QT > 0 OR AIRIP.AIR_PICK_QT > 0 OR AIRIP.AIR_PACK_QT > 0 or SEAIP.BO_SEA>0 OR AIRIP.BO_AIR>0 or SEAIP.SEA_INVOICE_QT>0 OR AIRIP.AIR_INVOICE_QT>0)       
+
+GROUP BY corp_cd, hkc_dcd, RTRIM(ptno), RTRIM(hkc_dcd||ptno), RTRIM(pt_nm), vnd_cd, aply_dt, bout_dt, fob_amt, cha_cd, suc_cd, sd_cls_cd, 
+VEN.VND_NM_E, VEN.VND_NM_K, EPM.LENGTH, EPM.WIDE, EPM.HEIGHT, EPM.WEIGHT,EIM.PKG_CMP, EIM.STORING, EIM.AVAILABLE, PVN.VND1, SEAIP.SEA_ALC_QT, 
+SEAIP.SEA_PICK_QT, SEAIP.SEA_PACK_QT, SEAIP.SEA_PACKED_QT,AIRIP.AIR_ALC_QT, AIRIP.AIR_PICK_QT, AIRIP.AIR_PACK_QT, AIRIP.AIR_PACKED_QT, 
+SEAIP.SEA_INVOICE_QT, AIRIP.AIR_INVOICE_QT, SEAIP.BO_SEA, AIRIP.BO_AIR
+
+
+
+'''
+
+try:
+    cursor.execute(query)
+    results = cursor.fetchall()
+    column_names = [desc[0] for desc in cursor.description]
+    logging.info('Query executed successfully and results fetched.')
+except Exception as e:
+    logging.error(f'Failed to execute query: {e}')
+finally:
+    cursor.close()
+    connection.close()
+    logging.info('PostgreSQL database connection closed.')
+
+df_Orders = pd.DataFrame(results, columns=column_names)
+
+# Ensure the PNO column is treated as a string
+df_Orders['pno'] = df_Orders['pno'].apply(lambda x: f'{x}')
+
+columns_to_convert = [
+    'pkg_cmp', 'storing', 'available', 
+    'sea_alc_qt', 'sea_pick_qt', 'sea_pack_qt', 'sea_packed_qt', 
+    'air_alc_qt', 'air_pick_qt', 'air_pack_qt', 'air_packed_qt', 
+    'sea_invoice_qt', 'air_invoice_qt', 'bo_sea', 'bo_air'
+]
+
+for column in columns_to_convert:
+    df_Orders[column] = df_Orders[column].fillna(0).astype(int)
+
+# Save DataFrame to an Excel file
+excel_file_path = r'N:\XXXX\XXXX\XXXX\Proactive Air\MHQ Inventory Template.xlsx'
+excel_file_path2 = r'N:\XXXX\XXXX\XXXX\Proactive Air\updated\MHQ Inventory Template.xlsx'
+sheet_name = 'MHQ Inventory Template.xlsx'
+
+
+
+
+# Save the DataFrame to an Excel file with the specified sheet name
+with pd.ExcelWriter(excel_file_path, engine='xlsxwriter') as writer:
+    df_Orders.to_excel(writer, sheet_name=sheet_name, index=False)
+
+with pd.ExcelWriter(excel_file_path2, engine='xlsxwriter') as writer:
+    df_Orders.to_excel(writer, sheet_name=sheet_name, index=False)
+
+logging.info(f'SUCCESSFULLY UPDATED MHQ Inventory Template at {excel_file_path}.')
+
+
+print("MHQ INV Template created and logged.")
